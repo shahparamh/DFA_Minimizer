@@ -2,6 +2,7 @@ import streamlit as st
 import graphviz
 import pandas as pd
 from io import BytesIO
+import json
 
 # ---------- Helper Functions ----------
 def draw_dfa(states, alphabet, transitions, start_state, final_states, title="DFA"):
@@ -19,6 +20,11 @@ def draw_dfa(states, alphabet, transitions, start_state, final_states, title="DF
     for (src, sym), dst in transitions.items():
         dot.edge(src, dst, label=sym)
     return dot
+
+def export_graph(dot, format="png"):
+    """Convert Graphviz dot to an image and return BytesIO buffer."""
+    img_bytes = dot.pipe(format=format)
+    return BytesIO(img_bytes)
 
 def construct_initial_empty_table(states):
     table = {}
@@ -101,9 +107,21 @@ def render_stepdown_matrix(states, table, round_num, prev_table=None):
     st.markdown(f"### 🌀 Step-Down Table – Round {round_num}")
     st.dataframe(styled, use_container_width=True)
 
+def copy_button(text, label="📋 Copy LaTeX"):
+    button_html = f"""
+        <button onclick="navigator.clipboard.writeText(`{text.replace("`", "'")}`)">
+            {label}
+        </button>
+    """
+    st.markdown(button_html, unsafe_allow_html=True)
+
 # ---------- Streamlit App ----------
 st.set_page_config(page_title="DFA Minimizer", layout="wide")
 st.title("🎯 DFA Minimization Visualizer")
+
+# Initialize history
+if "history" not in st.session_state:
+    st.session_state.history = []
 
 # ---------- Excel Upload ----------
 st.sidebar.header("📥 Excel Upload / Sample")
@@ -115,7 +133,6 @@ if uploaded_file:
         df = pd.read_excel(uploaded_file)
         st.subheader("📄 Uploaded Excel Data")
         st.dataframe(df)
-        # Extract DFA info from Excel
         states = [str(s) for s in df['State'].unique()]
         alphabet = [str(a) for a in df['Input'].unique()]
         start_state = str(df['Start_State'].dropna().iloc[0]) if 'Start_State' in df.columns else states[0]
@@ -141,27 +158,6 @@ if not dfa_data:
             if dst:
                 transitions[(s, a)] = str(dst)
 
-# ---------- Sample Excel Table ----------
-st.subheader("📝 Sample Excel Format for DFA Input")
-sample_df = pd.DataFrame({
-    "State": ["A","A","B","B","C","C"],
-    "Input": ["0","1","0","1","0","1"],
-    "Next_State": ["B","C","A","C","C","C"],
-    "Start_State": ["A","","","","",""],
-    "Final_State": ["","","","","C",""]
-})
-st.dataframe(sample_df)
-
-buffer = BytesIO()
-sample_df.to_excel(buffer, index=False, engine="openpyxl")
-buffer.seek(0)
-st.download_button(
-    label="📥 Download Sample Excel",
-    data=buffer,
-    file_name="sample_dfa.xlsx",
-    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-)
-
 # ---------- Validate DFA ----------
 error_msg = None
 if start_state not in states:
@@ -176,34 +172,46 @@ if error_msg:
     st.stop()
 
 # ---------- Layout ----------
-col1, col2 = st.columns(2)
-with col1:
-    st.subheader("📌 Original DFA")
-    st.graphviz_chart(draw_dfa(states, alphabet, transitions, start_state, final_states))
+st.subheader("📌 Original DFA")
+orig_dot = draw_dfa(states, alphabet, transitions, start_state, final_states)
+st.graphviz_chart(orig_dot)
 
-# Step-down refinement rounds
-rounds = refine_table_rounds(states, transitions, alphabet, final_states)
-for i, table in enumerate(rounds):
-    prev = rounds[i-1] if i > 0 else None
-    render_stepdown_matrix(states, table, i, prev_table=prev)
-
-# ---------- Final DFA ----------
+# ---------- Minimized DFA ----------
 st.subheader("✅ Minimized DFA")
+rounds = refine_table_rounds(states, transitions, alphabet, final_states)
 final_table = rounds[-1]
 groups = get_equivalence_classes(final_table, states)
 
-min_states = [",".join(sorted(g)) for g in groups]
+# Remove commas when merging states
+min_states = ["".join(sorted(g)) for g in groups]
 min_start = next(s for s in min_states if start_state in s)
 min_final = [s for s in min_states if any(f in s for f in final_states)]
 min_transitions = {}
 for group in groups:
     rep = next(iter(group))
-    new_state = ",".join(sorted(group))
+    new_state = "".join(sorted(group))
     for a in alphabet:
         dst = transitions.get((rep, a))
         if dst:
             for g in groups:
                 if dst in g:
-                    min_transitions[(new_state, a)] = ",".join(sorted(g))
+                    min_transitions[(new_state, a)] = "".join(sorted(g))
 
-st.graphviz_chart(draw_dfa(min_states, alphabet, min_transitions, min_start, min_final, "Minimized DFA"))
+min_dot = draw_dfa(min_states, alphabet, min_transitions, min_start, min_final, "Minimized DFA")
+st.graphviz_chart(min_dot)
+
+# ---------- LaTeX Export for Minimized DFA ----------
+st.subheader("📋 Minimized DFA as LaTeX")
+
+# Sort transitions alphabetically by state, then input
+sorted_transitions = sorted(min_transitions.items(), key=lambda x: (x[0][0], x[0][1]))
+
+latex_minimized = r"""
+\begin{array}{c|c|c}
+State & Input & Next State \\
+\hline
+""" + "\n".join([f"{s} & {a} & {dst} \\\\" for (s, a), dst in sorted_transitions]) + "\n\\end{array}"
+
+st.latex(latex_minimized)
+st.code(latex_minimized, language="latex")
+copy_button(latex_minimized, "📋 Copy Minimized DFA (LaTeX)")
