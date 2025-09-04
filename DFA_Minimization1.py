@@ -77,36 +77,6 @@ def get_equivalence_classes(table, states):
         groups.append(group)
     return groups
 
-def render_stepdown_matrix(states, table, round_num, prev_table=None):
-    n = len(states)
-    matrix = []
-    for i in range(n):
-        row = []
-        for j in range(n):
-            if i <= j:
-                row.append("–")
-            else:
-                p, q = states[i], states[j]
-                val = table.get((min(p, q), max(p, q)), False)
-                row.append("❌" if val else "✅")
-        matrix.append(row)
-    df = pd.DataFrame(matrix, index=states, columns=states)
-    def highlight_cells(val, i, j):
-        if val == "–":
-            return "background-color: lightgrey; color: grey;"
-        if val == "❌" and prev_table is not None:
-            p, q = states[i], states[j]
-            was_marked = prev_table.get((min(p, q), max(p, q)), False)
-            if not was_marked:
-                return "background-color: rgba(255,0,0,0.2);"
-        return ""
-    styled = df.style.apply(
-        lambda row: [highlight_cells(row[j], states.index(row.name), j) for j in range(len(row))],
-        axis=1
-    )
-    st.markdown(f"### 🌀 Step-Down Table – Round {round_num}")
-    st.dataframe(styled, use_container_width=True)
-
 def copy_button(text, label="📋 Copy LaTeX"):
     button_html = f"""
         <button onclick="navigator.clipboard.writeText(`{text.replace("`", "'")}`)">
@@ -118,10 +88,6 @@ def copy_button(text, label="📋 Copy LaTeX"):
 # ---------- Streamlit App ----------
 st.set_page_config(page_title="DFA Minimizer", layout="wide")
 st.title("🎯 DFA Minimization Visualizer")
-
-# Initialize history
-if "history" not in st.session_state:
-    st.session_state.history = []
 
 # ---------- Excel Upload ----------
 st.sidebar.header("📥 Excel Upload / Sample")
@@ -171,10 +137,23 @@ if error_msg:
     st.error(error_msg)
     st.stop()
 
-# ---------- Layout ----------
+# ---------- Select Download Format ----------
+st.sidebar.header("💾 Download Options")
+download_format = st.sidebar.selectbox("Select DFA Image Format", options=["png", "pdf", "svg"])
+
+# ---------- Original DFA ----------
 st.subheader("📌 Original DFA")
 orig_dot = draw_dfa(states, alphabet, transitions, start_state, final_states)
 st.graphviz_chart(orig_dot)
+
+# Download button for original DFA
+orig_img = export_graph(orig_dot, format=download_format)
+st.download_button(
+    label=f"📥 Download Original DFA ({download_format.upper()})",
+    data=orig_img,
+    file_name=f"original_dfa.{download_format}",
+    mime=f"image/{download_format}"
+)
 
 # ---------- Minimized DFA ----------
 st.subheader("✅ Minimized DFA")
@@ -182,7 +161,6 @@ rounds = refine_table_rounds(states, transitions, alphabet, final_states)
 final_table = rounds[-1]
 groups = get_equivalence_classes(final_table, states)
 
-# Remove commas when merging states
 min_states = ["".join(sorted(g)) for g in groups]
 min_start = next(s for s in min_states if start_state in s)
 min_final = [s for s in min_states if any(f in s for f in final_states)]
@@ -200,12 +178,18 @@ for group in groups:
 min_dot = draw_dfa(min_states, alphabet, min_transitions, min_start, min_final, "Minimized DFA")
 st.graphviz_chart(min_dot)
 
+# Download button for minimized DFA
+min_img = export_graph(min_dot, format=download_format)
+st.download_button(
+    label=f"📥 Download Minimized DFA ({download_format.upper()})",
+    data=min_img,
+    file_name=f"minimized_dfa.{download_format}",
+    mime=f"image/{download_format}"
+)
+
 # ---------- LaTeX Export for Minimized DFA ----------
 st.subheader("📋 Minimized DFA as LaTeX")
-
-# Sort transitions alphabetically by state, then input
 sorted_transitions = sorted(min_transitions.items(), key=lambda x: (x[0][0], x[0][1]))
-
 latex_minimized = r"""
 \begin{array}{c|c|c}
 State & Input & Next State \\
