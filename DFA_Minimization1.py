@@ -189,13 +189,40 @@ st.download_button(
 
 # ---------- LaTeX Export for Minimized DFA ----------
 st.subheader("📋 Minimized DFA as LaTeX")
-sorted_transitions = sorted(min_transitions.items(), key=lambda x: (x[0][0], x[0][1]))
-latex_minimized = r"""
-\begin{array}{c|c|c}
-State & Input & Next State \\
-\hline
-""" + "\n".join([f"{s} & {a} & {dst} \\\\" for (s, a), dst in sorted_transitions]) + "\n\\end{array}"
 
-st.latex(latex_minimized)
+
+# Build rows for the transition table
+rows = []
+for a in alphabet:
+    cols = [a]
+    for s in min_states:
+        dst = min_transitions.get((s, a), "-")
+        cols.append(dst)
+    rows.append(" & ".join(cols) + r" \\ \hline")
+
+# Build the LaTeX table string
+latex_minimized = (
+    "\\begin{table}[h]\n"
+    "    \\centering\n"
+    "    \\begin{tabular}{|c|" + ("c|" * len(min_states)) + "}\n"
+    "    \\hline\n"
+    "    Input & " + " & ".join(min_states) + r" \\ \hline" + "\n"
+    + "\n".join(rows) + "\n"
+    "    \\end{tabular}\n"
+    "    \\caption{Minimized DFA Transition Table}\n"
+    "\\end{table}\n"
+)
+
+# Show LaTeX code block
 st.code(latex_minimized, language="latex")
-copy_button(latex_minimized, "📋 Copy Minimized DFA (LaTeX)")
+
+# Copy button (safe escaping)
+import json
+escaped_text = json.dumps(latex_minimized)
+copy_button_html = f"""
+    <button onclick="navigator.clipboard.writeText({escaped_text})"
+            style="padding:6px 10px; border-radius:6px;">
+        📋 Copy Minimized DFA (LaTeX)
+    </button>
+"""
+st.markdown(copy_button_html, unsafe_allow_html=True)
