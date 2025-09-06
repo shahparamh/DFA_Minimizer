@@ -162,20 +162,35 @@ rounds = refine_table_rounds(states, transitions, alphabet, final_states)
 final_table = rounds[-1]
 groups = get_equivalence_classes(final_table, states)
 
-min_states = ["".join(sorted(g)) for g in groups]
-min_start = next(s for s in min_states if start_state in s)
-min_final = [s for s in min_states if any(f in s for f in final_states)]
+# Create new state names q0, q1, q2...
+state_mapping = {}
+ordered_groups = []
+# Ensure start state group is first
+for g in groups:
+    if start_state in g:
+        ordered_groups = [g] + [x for x in groups if x != g]
+        break
+
+for idx, g in enumerate(ordered_groups):
+    state_mapping["".join(sorted(g))] = f"q{idx}"
+
+min_states = list(state_mapping.values())
+min_start = "q0"
+min_final = [state_mapping["".join(sorted(g))] for g in groups if any(f in g for f in final_states)]
+
+# Build minimized transitions
 min_transitions = {}
-for group in groups:
-    rep = next(iter(group))
-    new_state = "".join(sorted(group))
+for g in groups:
+    rep = next(iter(g))
+    new_state = state_mapping["".join(sorted(g))]
     for a in alphabet:
         dst = transitions.get((rep, a))
         if dst:
-            for g in groups:
-                if dst in g:
-                    min_transitions[(new_state, a)] = "".join(sorted(g))
+            for h in groups:
+                if dst in h:
+                    min_transitions[(new_state, a)] = state_mapping["".join(sorted(h))]
 
+# Draw minimized DFA
 min_dot = draw_dfa(min_states, alphabet, min_transitions, min_start, min_final, "Minimized DFA")
 st.graphviz_chart(min_dot)
 
@@ -191,7 +206,6 @@ st.download_button(
 # ---------- LaTeX Export for Minimized DFA ----------
 st.subheader("📋 Minimized DFA as LaTeX")
 
-# Build rows for the transition table (states as rows, alphabet as columns)
 rows = []
 for s in min_states:
     state_label = s
@@ -206,7 +220,6 @@ for s in min_states:
         cols.append(dst)
     rows.append(" & ".join(cols) + r" \\ \hline")
 
-# Build the LaTeX table string
 latex_minimized = (
     "\\begin{table}[h]\n"
     "    \\centering\n"
@@ -219,7 +232,6 @@ latex_minimized = (
     "\\end{table}\n"
 )
 
-# Show LaTeX code block
 st.code(latex_minimized, language="latex")
 
 # Copy button (safe escaping)
