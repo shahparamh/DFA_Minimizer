@@ -8,23 +8,38 @@ import json
 def draw_dfa(states, alphabet, transitions, start_state, final_states, title="DFA"):
     dot = graphviz.Digraph(comment=title)
     dot.attr(rankdir="LR", size="8")
+
+    # Invisible start arrow
     dot.node("", shape="none")
+
     for state in states:
-        if state == start_state:
+        if state == start_state and state in final_states:
+            # Start & Final -> doublecircle + incoming arrow
+            dot.node(state, state, shape="doublecircle", style="filled", color="black", fillcolor="white", fontcolor="black")
+            dot.edge("", state)
+        elif state == start_state:
+            # Only Start
             dot.node(state, state, shape="circle", style="filled", color="black", fillcolor="white", fontcolor="black")
+            dot.edge("", state)
         elif state in final_states:
+            # Only Final
             dot.node(state, state, shape="doublecircle", style="filled", color="black", fillcolor="white", fontcolor="black")
         else:
+            # Normal state
             dot.node(state, state, shape="circle", style="filled", color="black", fillcolor="white", fontcolor="black")
-    dot.edge("", start_state)
+
+    # Add transitions
     for (src, sym), dst in transitions.items():
         dot.edge(src, dst, label=sym)
+
     return dot
+
 
 def export_graph(dot, format="png"):
     """Convert Graphviz dot to an image and return BytesIO buffer."""
     img_bytes = dot.pipe(format=format)
     return BytesIO(img_bytes)
+
 
 def construct_initial_empty_table(states):
     table = {}
@@ -32,6 +47,7 @@ def construct_initial_empty_table(states):
         for q in states[i+1:]:
             table[(p, q)] = False
     return table
+
 
 def refine_table_rounds(states, transitions, alphabet, final_states):
     rounds = []
@@ -64,6 +80,7 @@ def refine_table_rounds(states, transitions, alphabet, final_states):
         table = new_table
     return rounds
 
+
 def get_equivalence_classes(table, states):
     groups = []
     ungrouped = set(states)
@@ -76,6 +93,7 @@ def get_equivalence_classes(table, states):
                 ungrouped.remove(t)
         groups.append(group)
     return groups
+
 
 def copy_button(text, label="📋 Copy LaTeX"):
     button_html = f"""
@@ -155,6 +173,46 @@ st.download_button(
     file_name=f"original_dfa.{download_format}",
     mime=f"image/{download_format}"
 )
+
+# ---------- LaTeX Export for Original DFA ----------
+st.subheader("📋 Original DFA as LaTeX")
+
+orig_rows = []
+for s in states:
+    state_label = s
+    if s == start_state:
+        state_label = "→" + state_label
+    if s in final_states:
+        state_label = state_label + "*"
+
+    cols = [state_label]
+    for a in alphabet:
+        dst = transitions.get((s, a), "-")
+        cols.append(dst)
+    orig_rows.append(" & ".join(cols) + r" \\ \hline")
+
+latex_original = (
+    "\\begin{table}[h]\n"
+    "    \\centering\n"
+    "    \\begin{tabular}{|c|" + ("c|" * len(alphabet)) + "}\n"
+    "    \\hline\n"
+    "    State & " + " & ".join(alphabet) + r" \\ \hline" + "\n"
+    + "\n".join(orig_rows) + "\n"
+    "    \\end{tabular}\n"
+    "    \\caption{Original DFA Transition Table}\n"
+    "\\end{table}\n"
+)
+
+st.code(latex_original, language="latex")
+
+escaped_text_orig = json.dumps(latex_original)
+copy_button_html_orig = f"""
+    <button onclick="navigator.clipboard.writeText({escaped_text_orig})"
+            style="padding:6px 10px; border-radius:6px;">
+        📋 Copy Original DFA (LaTeX)
+    </button>
+"""
+st.markdown(copy_button_html_orig, unsafe_allow_html=True)
 
 # ---------- Minimized DFA ----------
 st.subheader("✅ Minimized DFA")
