@@ -11,11 +11,11 @@ def draw_dfa(states, alphabet, transitions, start_state, final_states, title="DF
     dot.node("", shape="none")
     for state in states:
         if state == start_state:
-            dot.node(state, state, shape="circle", style="filled", color="red", fontcolor="white")
+            dot.node(state, state, shape="circle", style="filled", color="black", fillcolor="white", fontcolor="black")
         elif state in final_states:
-            dot.node(state, state, shape="doublecircle", style="filled", color="green", fontcolor="black")
+            dot.node(state, state, shape="doublecircle", style="filled", color="black", fillcolor="white", fontcolor="black")
         else:
-            dot.node(state, state, shape="circle", style="filled", color="yellow", fontcolor="black")
+            dot.node(state, state, shape="circle", style="filled", color="black", fillcolor="white", fontcolor="black")
     dot.edge("", start_state)
     for (src, sym), dst in transitions.items():
         dot.edge(src, dst, label=sym)
@@ -85,6 +85,7 @@ def copy_button(text, label="📋 Copy LaTeX"):
     """
     st.markdown(button_html, unsafe_allow_html=True)
 
+
 # ---------- Streamlit App ----------
 st.set_page_config(page_title="DFA Minimizer", layout="wide")
 st.title("🎯 DFA Minimization Visualizer")
@@ -112,10 +113,10 @@ if uploaded_file:
 # ---------- Manual Input Fallback ----------
 if not dfa_data:
     st.sidebar.header("DFA Input (Manual)")
-    states = [str(s) for s in st.sidebar.text_input("States (comma separated)", "A,B,C,D,E,F").split(",")]
-    alphabet = [str(a) for a in st.sidebar.text_input("Alphabet (comma separated)", "0,1").split(",")]
-    start_state = str(st.sidebar.text_input("Start State", "A"))
-    final_states = [str(f) for f in st.sidebar.text_input("Final States (comma separated)", "B,C,F").split(",")]
+    states = [str(s) for s in st.sidebar.text_input("States (comma separated)", "q0,q1").split(",")]
+    alphabet = [str(a) for a in st.sidebar.text_input("Alphabet (comma separated)", "a,b").split(",")]
+    start_state = str(st.sidebar.text_input("Start State", "q0"))
+    final_states = [str(f) for f in st.sidebar.text_input("Final States (comma separated)", "q1").split(",")]
     st.sidebar.markdown("#### Transitions")
     transitions = {}
     for s in states:
@@ -190,12 +191,17 @@ st.download_button(
 # ---------- LaTeX Export for Minimized DFA ----------
 st.subheader("📋 Minimized DFA as LaTeX")
 
-
-# Build rows for the transition table
+# Build rows for the transition table (states as rows, alphabet as columns)
 rows = []
-for a in alphabet:
-    cols = [a]
-    for s in min_states:
+for s in min_states:
+    state_label = s
+    if s == min_start:
+        state_label = "→" + state_label
+    if s in min_final:
+        state_label = state_label + "*"
+
+    cols = [state_label]
+    for a in alphabet:
         dst = min_transitions.get((s, a), "-")
         cols.append(dst)
     rows.append(" & ".join(cols) + r" \\ \hline")
@@ -204,9 +210,9 @@ for a in alphabet:
 latex_minimized = (
     "\\begin{table}[h]\n"
     "    \\centering\n"
-    "    \\begin{tabular}{|c|" + ("c|" * len(min_states)) + "}\n"
+    "    \\begin{tabular}{|c|" + ("c|" * len(alphabet)) + "}\n"
     "    \\hline\n"
-    "    Input & " + " & ".join(min_states) + r" \\ \hline" + "\n"
+    "    State & " + " & ".join(alphabet) + r" \\ \hline" + "\n"
     + "\n".join(rows) + "\n"
     "    \\end{tabular}\n"
     "    \\caption{Minimized DFA Transition Table}\n"
@@ -217,7 +223,6 @@ latex_minimized = (
 st.code(latex_minimized, language="latex")
 
 # Copy button (safe escaping)
-import json
 escaped_text = json.dumps(latex_minimized)
 copy_button_html = f"""
     <button onclick="navigator.clipboard.writeText({escaped_text})"
