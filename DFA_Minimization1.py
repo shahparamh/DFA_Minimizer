@@ -2,44 +2,34 @@ import streamlit as st
 import graphviz
 import pandas as pd
 from io import BytesIO
-import json
 
 # ---------- Helper Functions ----------
+
 def draw_dfa(states, alphabet, transitions, start_state, final_states, title="DFA"):
     dot = graphviz.Digraph(comment=title)
     dot.attr(rankdir="LR", size="8")
-
-    # Invisible start arrow
     dot.node("", shape="none")
 
     for state in states:
         if state == start_state and state in final_states:
-            # Start & Final -> doublecircle + incoming arrow
             dot.node(state, state, shape="doublecircle", style="filled", color="black", fillcolor="white", fontcolor="black")
             dot.edge("", state)
         elif state == start_state:
-            # Only Start
             dot.node(state, state, shape="circle", style="filled", color="black", fillcolor="white", fontcolor="black")
             dot.edge("", state)
         elif state in final_states:
-            # Only Final
             dot.node(state, state, shape="doublecircle", style="filled", color="black", fillcolor="white", fontcolor="black")
         else:
-            # Normal state
             dot.node(state, state, shape="circle", style="filled", color="black", fillcolor="white", fontcolor="black")
 
-    # Add transitions
     for (src, sym), dst in transitions.items():
         dot.edge(src, dst, label=sym)
 
     return dot
 
-
-def export_graph(dot, format="png"):
-    """Convert Graphviz dot to an image and return BytesIO buffer."""
-    img_bytes = dot.pipe(format=format)
+def export_graph(dot):
+    img_bytes = dot.pipe(format="svg")
     return BytesIO(img_bytes)
-
 
 def construct_initial_empty_table(states):
     table = {}
@@ -47,7 +37,6 @@ def construct_initial_empty_table(states):
         for q in states[i+1:]:
             table[(p, q)] = False
     return table
-
 
 def refine_table_rounds(states, transitions, alphabet, final_states):
     rounds = []
@@ -70,16 +59,15 @@ def refine_table_rounds(states, transitions, alphabet, final_states):
                     q_next = transitions.get((q, a))
                     if not p_next or not q_next:
                         continue
-                    if (min(p_next, q_next), max(p_next, q_next)) in table:
-                        if table[(min(p_next, q_next), max(p_next, q_next))]:
-                            new_table[(p, q)] = True
-                            changed = True
-                            break
+                    key = (min(p_next, q_next), max(p_next, q_next))
+                    if key in table and table[key]:
+                        new_table[(p, q)] = True
+                        changed = True
+                        break
         if changed:
             rounds.append(new_table.copy())
         table = new_table
     return rounds
-
 
 def get_equivalence_classes(table, states):
     groups = []
@@ -94,22 +82,77 @@ def get_equivalence_classes(table, states):
         groups.append(group)
     return groups
 
+def render_step_down_table(states, current_table, previous_table, round_number):
+    st.markdown(f"### 🔢 Step-Down Table – Round {round_number}")
 
-def copy_button(text, label="📋 Copy LaTeX"):
-    button_html = f"""
-        <button onclick="navigator.clipboard.writeText(`{text.replace("`", "'")}`)">
-            {label}
-        </button>
-    """
-    st.markdown(button_html, unsafe_allow_html=True)
+    n = len(states)
+    html = "<style> table, th, td {border: 1px solid black; border-collapse: collapse; padding: 8px; text-align: center;} </style>"
+    html += "<table>"
 
+    # header row
+    html += "<tr><th></th>"
+    for s in states:
+        html += f"<th>{s}</th>"
+    html += "</tr>"
+
+    # each row
+    for i in range(n):
+        html += f"<tr><th>{states[i]}</th>"
+        for j in range(n):
+            if i <= j:
+                html += '<td style="background-color:#ddd;">–</td>'
+            else:
+                p = states[j]
+                q = states[i]
+                marked = current_table.get((p, q), False)
+                prev_marked = previous_table.get((p, q), False) if previous_table else False
+
+                if marked:
+                    cell = '<td style="background-color:#f88;">❌</td>'
+                else:
+                    cell = '<td style="background-color:#8f8;">✔️</td>'
+                html += cell
+        html += "</tr>"
+    html += "</table>"
+
+    st.markdown(html, unsafe_allow_html=True)
+
+def generate_latex_table(states, alphabet, transitions, start_state, final_states, caption_text):
+    rows = []
+    for s in states:
+        state_label = s
+        if s == start_state:
+            state_label = "→" + state_label
+        if s in final_states:
+            state_label = state_label + "*"
+
+        cols = [state_label]
+        for a in alphabet:
+            dst = transitions.get((s, a), "-")
+            cols.append(dst)
+        rows.append(" & ".join(cols) + r" \\ \hline")
+
+    latex_code = (
+        "\\begin{table}[h]\n"
+        "    \\centering\n"
+        "    \\begin{tabular}{|" + "c|" * (len(alphabet) + 1) + "}\n"
+        "    \\hline\n"
+        "    State & " + " & ".join(alphabet) + r" \\ \hline" + "\n"
+        + "\n".join(rows) + "\n"
+        "    \\end{tabular}\n"
+        f"    \\caption{{{caption_text}}}\n"
+        "\\end{table}"
+    )
+    return latex_code
 
 # ---------- Streamlit App ----------
+
 st.set_page_config(page_title="DFA Minimizer", layout="wide")
 st.title("🎯 DFA Minimization Visualizer")
 
-# ---------- Excel Upload ----------
-st.sidebar.header("📥 Excel Upload / Sample")
+# ---------- Input ----------
+
+st.sidebar.header("📥 Input DFA")
 uploaded_file = st.sidebar.file_uploader("Upload DFA Excel file", type=["xlsx"])
 dfa_data = {}
 
@@ -128,7 +171,6 @@ if uploaded_file:
     except Exception as e:
         st.error(f"Error reading Excel: {e}")
 
-# ---------- Manual Input Fallback ----------
 if not dfa_data:
     st.sidebar.header("DFA Input (Manual)")
     states = [str(s) for s in st.sidebar.text_input("States (comma separated)", "q0,q1").split(",")]
@@ -143,7 +185,8 @@ if not dfa_data:
             if dst:
                 transitions[(s, a)] = str(dst)
 
-# ---------- Validate DFA ----------
+# ---------- Validation ----------
+
 error_msg = None
 if start_state not in states:
     error_msg = f"❌ Start state `{start_state}` is not in states!"
@@ -156,87 +199,47 @@ if error_msg:
     st.error(error_msg)
     st.stop()
 
-# ---------- Select Download Format ----------
-st.sidebar.header("💾 Download Options")
-download_format = st.sidebar.selectbox("Select DFA Image Format", options=["png", "pdf", "svg"])
 
 # ---------- Original DFA ----------
+
 st.subheader("📌 Original DFA")
 orig_dot = draw_dfa(states, alphabet, transitions, start_state, final_states)
 st.graphviz_chart(orig_dot)
 
-# Download button for original DFA
-orig_img = export_graph(orig_dot, format=download_format)
+orig_img = export_graph(orig_dot)
 st.download_button(
-    label=f"📥 Download Original DFA ({download_format.upper()})",
+    label="📥 Download Original DFA (SVG)",
     data=orig_img,
-    file_name=f"original_dfa.{download_format}",
-    mime=f"image/{download_format}"
+    file_name="original_dfa.svg",
+    mime="image/svg+xml"
 )
 
-# ---------- LaTeX Export for Original DFA ----------
-st.subheader("📋 Original DFA as LaTeX")
-
-orig_rows = []
-for s in states:
-    state_label = s
-    if s == start_state:
-        state_label = "→" + state_label
-    if s in final_states:
-        state_label = state_label + "*"
-
-    cols = [state_label]
-    for a in alphabet:
-        dst = transitions.get((s, a), "-")
-        cols.append(dst)
-    orig_rows.append(" & ".join(cols) + r" \\ \hline")
-
-latex_original = (
-    "\\begin{table}[h]\n"
-    "    \\centering\n"
-    "    \\begin{tabular}{|c|" + ("c|" * len(alphabet)) + "}\n"
-    "    \\hline\n"
-    "    State & " + " & ".join(alphabet) + r" \\ \hline" + "\n"
-    + "\n".join(orig_rows) + "\n"
-    "    \\end{tabular}\n"
-    "    \\caption{Original DFA Transition Table}\n"
-    "\\end{table}\n"
-)
-
+# LaTeX code for original DFA
+st.subheader("📋 Original DFA Transition Table (LaTeX)")
+latex_original = generate_latex_table(states, alphabet, transitions, start_state, final_states, "Original DFA Transition Table")
 st.code(latex_original, language="latex")
 
-escaped_text_orig = json.dumps(latex_original)
-copy_button_html_orig = f"""
-    <button onclick="navigator.clipboard.writeText({escaped_text_orig})"
-            style="padding:6px 10px; border-radius:6px;">
-        📋 Copy Original DFA (LaTeX)
-    </button>
-"""
-st.markdown(copy_button_html_orig, unsafe_allow_html=True)
+# ---------- Minimization Process ----------
+
+st.subheader("✅ Minimization Process")
+rounds = refine_table_rounds(states, transitions, alphabet, final_states)
+for idx, table in enumerate(rounds):
+    previous_table = rounds[idx - 1] if idx > 0 else None
+    render_step_down_table(states, table, previous_table, idx)
 
 # ---------- Minimized DFA ----------
-st.subheader("✅ Minimized DFA")
-rounds = refine_table_rounds(states, transitions, alphabet, final_states)
+
+st.subheader("🎯 Minimized DFA")
 final_table = rounds[-1]
 groups = get_equivalence_classes(final_table, states)
 
-# Create new state names q0, q1, q2...
-state_mapping = {}
-ordered_groups = []
-# Ensure start state group is first
-for g in groups:
-    if start_state in g:
-        ordered_groups = [g] + [x for x in groups if x != g]
-        break
-
-for idx, g in enumerate(ordered_groups):
-    state_mapping["".join(sorted(g))] = f"q{idx}"
+# State mapping: merged state names remain as sorted concatenation of member states
+state_mapping = {"".join(sorted(g)): "".join(sorted(g)) for g in groups}
 
 min_states = list(state_mapping.values())
-min_start = "q0"
+min_start = "".join(sorted(next(g for g in groups if start_state in g)))
 min_final = [state_mapping["".join(sorted(g))] for g in groups if any(f in g for f in final_states)]
 
-# Build minimized transitions
 min_transitions = {}
 for g in groups:
     rep = next(iter(g))
@@ -248,56 +251,18 @@ for g in groups:
                 if dst in h:
                     min_transitions[(new_state, a)] = state_mapping["".join(sorted(h))]
 
-# Draw minimized DFA
 min_dot = draw_dfa(min_states, alphabet, min_transitions, min_start, min_final, "Minimized DFA")
 st.graphviz_chart(min_dot)
 
-# Download button for minimized DFA
-min_img = export_graph(min_dot, format=download_format)
+min_img = export_graph(min_dot)
 st.download_button(
-    label=f"📥 Download Minimized DFA ({download_format.upper()})",
+    label="📥 Download Minimized DFA (SVG)",
     data=min_img,
-    file_name=f"minimized_dfa.{download_format}",
-    mime=f"image/{download_format}"
+    file_name="minimized_dfa.svg",
+    mime="image/svg+xml"
 )
 
-# ---------- LaTeX Export for Minimized DFA ----------
-st.subheader("📋 Minimized DFA as LaTeX")
-
-rows = []
-for s in min_states:
-    state_label = s
-    if s == min_start:
-        state_label = "→" + state_label
-    if s in min_final:
-        state_label = state_label + "*"
-
-    cols = [state_label]
-    for a in alphabet:
-        dst = min_transitions.get((s, a), "-")
-        cols.append(dst)
-    rows.append(" & ".join(cols) + r" \\ \hline")
-
-latex_minimized = (
-    "\\begin{table}[h]\n"
-    "    \\centering\n"
-    "    \\begin{tabular}{|c|" + ("c|" * len(alphabet)) + "}\n"
-    "    \\hline\n"
-    "    State & " + " & ".join(alphabet) + r" \\ \hline" + "\n"
-    + "\n".join(rows) + "\n"
-    "    \\end{tabular}\n"
-    "    \\caption{Minimized DFA Transition Table}\n"
-    "\\end{table}\n"
-)
-
+# LaTeX code for minimized DFA
+st.subheader("📋 Minimized DFA Transition Table (LaTeX)")
+latex_minimized = generate_latex_table(min_states, alphabet, min_transitions, min_start, min_final, "Minimized DFA Transition Table")
 st.code(latex_minimized, language="latex")
-
-# Copy button (safe escaping)
-escaped_text = json.dumps(latex_minimized)
-copy_button_html = f"""
-    <button onclick="navigator.clipboard.writeText({escaped_text})"
-            style="padding:6px 10px; border-radius:6px;">
-        📋 Copy Minimized DFA (LaTeX)
-    </button>
-"""
-st.markdown(copy_button_html, unsafe_allow_html=True)
