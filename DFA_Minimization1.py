@@ -89,13 +89,11 @@ def render_step_down_table(states, current_table, previous_table, round_number):
     html = "<style> table, th, td {border: 1px solid black; border-collapse: collapse; padding: 8px; text-align: center;} </style>"
     html += "<table>"
 
-    # header row
     html += "<tr><th></th>"
     for s in states:
         html += f"<th>{s}</th>"
     html += "</tr>"
 
-    # each row
     for i in range(n):
         html += f"<tr><th>{states[i]}</th>"
         for j in range(n):
@@ -153,23 +151,58 @@ st.title("🎯 DFA Minimization Visualizer")
 # ---------- Input ----------
 
 st.sidebar.header("📥 Input DFA")
-uploaded_file = st.sidebar.file_uploader("Upload DFA Excel file", type=["xlsx"])
+uploaded_file = st.sidebar.file_uploader("Upload DFA file", type=["xlsx", "csv"])
 dfa_data = {}
 
 if uploaded_file:
     try:
-        df = pd.read_excel(uploaded_file)
-        st.subheader("📄 Uploaded Excel Data")
+        if uploaded_file.name.endswith('.xlsx'):
+            df = pd.read_excel(uploaded_file)
+        elif uploaded_file.name.endswith('.csv'):
+            df = pd.read_csv(uploaded_file)
+
+        # Replace 'φ', 'ϕ', '-', empty strings with pd.NA
+        df = df.replace(["φ", "ϕ", "-", ""], pd.NA)
+
+        st.subheader("📄 Uploaded DFA Table")
         st.dataframe(df)
-        states = [str(s) for s in df['State'].unique()]
-        alphabet = [str(a) for a in df['Input'].unique()]
-        start_state = str(df['Start_State'].dropna().iloc[0]) if 'Start_State' in df.columns else states[0]
-        final_states = [str(f) for f in df['Final_State'].dropna().tolist()] if 'Final_State' in df.columns else []
-        transitions = {(str(row['State']), str(row['Input'])): str(row['Next_State']) for _, row in df.iterrows()}
-        dfa_data = {'states': states, 'alphabet': alphabet, 'start_state': start_state,
-                    'final_states': final_states, 'transitions': transitions}
+
+        # Extract states
+        states = []
+        start_state = None
+        final_states = []
+        
+        for state_entry in df.iloc[:, 1]:  # second column is "State"
+            state_name = state_entry.replace("→", "").replace("*", "").strip()
+            states.append(state_name)
+            if "→" in state_entry:
+                start_state = state_name
+            if "*" in state_entry:
+                final_states.append(state_name)
+
+        # Extract alphabet (all columns except first two)
+        alphabet = list(df.columns[2:])
+
+        # Extract transitions
+        transitions = {}
+        for _, row in df.iterrows():
+            state_entry = row.iloc[1]
+            state_name = state_entry.replace("→", "").replace("*", "").strip()
+            for a in alphabet:
+                val = row[a]
+                if pd.notna(val):
+                    transitions[(state_name, a)] = str(val).strip()
+
+        dfa_data = {
+            'states': states,
+            'alphabet': alphabet,
+            'start_state': start_state,
+            'final_states': final_states,
+            'transitions': transitions
+        }
+
     except Exception as e:
-        st.error(f"Error reading Excel: {e}")
+        st.error(f"Error reading file: {e}")
 
 if not dfa_data:
     st.sidebar.header("DFA Input (Manual)")
@@ -199,7 +232,6 @@ if error_msg:
     st.error(error_msg)
     st.stop()
 
-
 # ---------- Original DFA ----------
 
 st.subheader("📌 Original DFA")
@@ -214,7 +246,6 @@ st.download_button(
     mime="image/svg+xml"
 )
 
-# LaTeX code for original DFA
 st.subheader("📋 Original DFA Transition Table (LaTeX)")
 latex_original = generate_latex_table(states, alphabet, transitions, start_state, final_states, "Original DFA Transition Table")
 st.code(latex_original, language="latex")
@@ -233,7 +264,6 @@ st.subheader("🎯 Minimized DFA")
 final_table = rounds[-1]
 groups = get_equivalence_classes(final_table, states)
 
-# State mapping: merged state names remain as sorted concatenation of member states
 state_mapping = {"".join(sorted(g)): "".join(sorted(g)) for g in groups}
 
 min_states = list(state_mapping.values())
@@ -262,7 +292,6 @@ st.download_button(
     mime="image/svg+xml"
 )
 
-# LaTeX code for minimized DFA
 st.subheader("📋 Minimized DFA Transition Table (LaTeX)")
 latex_minimized = generate_latex_table(min_states, alphabet, min_transitions, min_start, min_final, "Minimized DFA Transition Table")
 st.code(latex_minimized, language="latex")
