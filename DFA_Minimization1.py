@@ -59,7 +59,7 @@ def refine_table_rounds(states, transitions, alphabet, final_states):
                     q_next = transitions.get((q, a))
                     if not p_next or not q_next:
                         continue
-                    key = (min(p_next, q_next), max(p_next, q_next))
+                    key = (p_next, q_next) if p_next < q_next else (q_next, p_next)
                     if key in table and table[key]:
                         new_table[(p, q)] = True
                         changed = True
@@ -70,15 +70,25 @@ def refine_table_rounds(states, transitions, alphabet, final_states):
     return rounds
 
 def get_equivalence_classes(table, states):
+    """
+    Build equivalence classes from the final distinguishability table.
+    Preserves the order of states.
+    """
+    index_map = {s: i for i, s in enumerate(states)}
     groups = []
-    ungrouped = set(states)
-    while ungrouped:
-        s = ungrouped.pop()
+    visited = set()
+
+    for s in states:   # keep original order
+        if s in visited:
+            continue
         group = {s}
-        for t in list(ungrouped):
-            if not table.get((min(s, t), max(s, t)), False):
-                group.add(t)
-                ungrouped.remove(t)
+        visited.add(s)
+        for t in states:
+            if t not in visited:
+                key = (s, t) if index_map[s] < index_map[t] else (t, s)
+                if not table.get(key, False):  # not distinguishable → merge
+                    group.add(t)
+                    visited.add(t)
         groups.append(group)
     return groups
 
@@ -264,22 +274,30 @@ st.subheader("🎯 Minimized DFA")
 final_table = rounds[-1]
 groups = get_equivalence_classes(final_table, states)
 
-state_mapping = {"".join(sorted(g)): "".join(sorted(g)) for g in groups}
+# Show merged states info
+st.write("**Merged States (Equivalence Classes):**")
+for g in groups:
+    st.write(" , ".join(sorted(g)))
 
-min_states = list(state_mapping.values())
-min_start = "".join(sorted(next(g for g in groups if start_state in g)))
-min_final = [state_mapping["".join(sorted(g))] for g in groups if any(f in g for f in final_states)]
+# Build mapping old → new
+index_map = {s: i for i, s in enumerate(states)}
+state_mapping = {}
+min_states = []
+for group in groups:
+    if len(group) == 1:
+        new_state = next(iter(group))  # keep singleton
+    else:
+        new_state = "_".join(sorted(group, key=lambda x: index_map[x]))
+    min_states.append(new_state)
+    for s in group:
+        state_mapping[s] = new_state
+
+min_start = state_mapping[start_state]
+min_final = sorted({state_mapping[f] for f in final_states})
 
 min_transitions = {}
-for g in groups:
-    rep = next(iter(g))
-    new_state = state_mapping["".join(sorted(g))]
-    for a in alphabet:
-        dst = transitions.get((rep, a))
-        if dst:
-            for h in groups:
-                if dst in h:
-                    min_transitions[(new_state, a)] = state_mapping["".join(sorted(h))]
+for (s, a), dst in transitions.items():
+    min_transitions[(state_mapping[s], a)] = state_mapping[dst]
 
 min_dot = draw_dfa(min_states, alphabet, min_transitions, min_start, min_final, "Minimized DFA")
 st.graphviz_chart(min_dot)
