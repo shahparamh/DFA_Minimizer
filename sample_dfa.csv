@@ -1,0 +1,10 @@
+﻿,State,0,1
+0,→A,A,B
+1,B,G,B
+2,C,C,D
+3,D,E,D
+4,E,I,D
+5,F,C,D
+6,G,A,H
+7,H,F,D
+8,I*,C,D
