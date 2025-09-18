@@ -173,6 +173,7 @@ if uploaded_file:
 
         # Replace 'φ', 'ϕ', '-', empty strings with pd.NA
         df = df.replace(["φ", "ϕ", "-", ""], pd.NA)
+        df.columns = df.columns.map(str)
 
         st.subheader("📄 Uploaded DFA Table")
         st.dataframe(df)
@@ -201,7 +202,7 @@ if uploaded_file:
             for a in alphabet:
                 val = row[a]
                 if pd.notna(val):
-                    transitions[(state_name, a)] = str(val).strip()
+                    transitions[(state_name, str(a))] = str(val).strip()
 
         dfa_data = {
             'states': states,
